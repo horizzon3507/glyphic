@@ -1,4 +1,16 @@
-export type Charset = 'Standard' | 'Simple' | 'Blocks' | 'Binary' | 'Matrix' | 'Detailed';
+export type Charset =
+	| 'Standard'
+	| 'Simple'
+	| 'Blocks'
+	| 'Binary'
+	| 'Matrix'
+	| 'Detailed'
+	| 'Heavy'
+	| 'Decorative'
+	| 'Musical'
+	| 'Greek'
+	| 'Hearts'
+	| 'Arcade';
 
 export const charsets: Record<Charset, string> = {
     Standard: '@%#*+=-:. ',
@@ -6,7 +18,13 @@ export const charsets: Record<Charset, string> = {
     Blocks: '█▓▒░ ',
     Binary: '01 ',
     Matrix: '0123456789abcdef ',
-    Detailed: '$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,"^`\'. '
+    Detailed: '$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/\\|()1{}[]?-_+~<>i!lI;:,"^`\'. ',
+	Heavy: '██▓▓▒░  ',
+    Decorative: '✦✧✚✢✣✤✥✱✲✳✴✵✶✷✸✹✺✻✼❈❉❊❋ ',
+    Musical: '♪♫♬♩♭♮♯ ',
+    Greek: 'ΩΨΞΛΦΘΣΔΨΩαβγδλμνξπσφψω ',
+    Hearts: '❤♥ ',
+    Arcade: '▚▞▛▜▙▟▖▗▘▝ '
 };
 
 export interface AsciiOptions {
