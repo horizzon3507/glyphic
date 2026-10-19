@@ -62,6 +62,7 @@ export default function App() {
 	const lastGenParamsRef = useRef<GenParams | null>(null);
 	const [ascii, setAscii] = useState<{ text: string; html?: string } | null>(null);
 	const [isGenerating, setIsGenerating] = useState(false);
+	const [sidebarOpen, setSidebarOpen] = useState(false);
 	const urlRef = useRef<string | null>(null);
 
 	const { width, contrast, charset, inverted, colorMode } = options;
@@ -191,12 +192,45 @@ export default function App() {
 
 	return (
 		<div className="relative flex h-screen w-full bg-background text-foreground overflow-hidden">
+			<a
+				href="https://github.com/horizzon3507/"
+				target="_blank"
+				rel="noopener noreferrer"
+				aria-label="GitHub"
+				className="absolute top-4 right-4 z-50 flex items-center justify-center border border-foreground/20 bg-background/80 px-3 py-1.5 rounded-md hover:bg-accent transition-colors"
+			>
+				<svg viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+					<path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
+				</svg>
+			</a>
 			<Sidebar
 				options={options}
 				onOptionsChange={setOptions}
 				onImageUpload={handleImageUpload}
 				onRemoveImage={handleRemoveImage}
+				open={sidebarOpen}
+				onOpenChange={setSidebarOpen}
 			/>
+
+			{!sidebarOpen && (
+				<button
+					type="button"
+					onClick={() => setSidebarOpen(true)}
+					aria-label="Open settings menu"
+					className="fixed top-4 left-4 z-50 flex md:hidden h-10 w-10 items-center justify-center border-2 border-primary bg-black font-mono text-lg font-bold uppercase text-primary hover:bg-primary hover:text-black transition-colors"
+				>
+					≡
+				</button>
+			)}
+
+			{sidebarOpen && (
+				<button
+					type="button"
+					aria-label="Close settings menu"
+					onClick={() => setSidebarOpen(false)}
+					className="fixed inset-0 z-30 bg-black/50 md:hidden cursor-default"
+				/>
+			)}
 
 			{ascii ? (
 				<AsciiOutput ascii={ascii} options={options} onResetOptions={handleResetOptions} />
