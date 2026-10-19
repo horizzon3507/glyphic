@@ -15,28 +15,69 @@ export const DEFAULT_OPTIONS: AsciiOptions = {
 	bgColor: '#000000'
 };
 
+// Generation-relevant subset of options. Font and colors don't need a
+// regeneration (they only change presentation).
+interface GenParams {
+	width: number;
+	contrast: number;
+	charset: AsciiOptions['charset'];
+	inverted: boolean;
+	colorMode: boolean;
+}
+
+function toGenParams(o: AsciiOptions): GenParams {
+	return { width: o.width, contrast: o.contrast, charset: o.charset, inverted: o.inverted, colorMode: o.colorMode };
+}
+
+function sameGenParams(a: GenParams, b: GenParams) {
+	return (
+		a.width === b.width &&
+		a.contrast === b.contrast &&
+		a.charset === b.charset &&
+		a.inverted === b.inverted &&
+		a.colorMode === b.colorMode
+	);
+}
+
 export default function App() {
 	const [options, setOptions] = useState<AsciiOptions>({ ...DEFAULT_OPTIONS });
+	const optionsRef = useRef(options);
+	optionsRef.current = options;
+	const debounceTimerRef = useRef<number | null>(null);
+	const lastGenParamsRef = useRef<GenParams | null>(null);
 	const [ascii, setAscii] = useState<{ text: string; html?: string } | null>(null);
 	const [isGenerating, setIsGenerating] = useState(false);
 	const urlRef = useRef<string | null>(null);
 
+	const { width, contrast, charset, inverted, colorMode } = options;
+
 	useEffect(() => {
-		async function run() {
+		if (debounceTimerRef.current !== null) window.clearTimeout(debounceTimerRef.current);
+		// ~120ms trailing debounce collapses slider bursts into one conversion.
+		debounceTimerRef.current = window.setTimeout(() => {
+			debounceTimerRef.current = null;
 			const url = urlRef.current;
 			if (!url) return;
+			// Skip when a run with identical generation params already covers
+			// this state (only presentation options changed).
+			const params = toGenParams(optionsRef.current);
+			if (lastGenParamsRef.current && sameGenParams(lastGenParamsRef.current, params)) return;
 			setIsGenerating(true);
-			try {
-				setAscii(await imageToAscii(url, options));
-			} catch (error) {
-				console.error('Failed to generate ASCII:', error);
-				toast.error('Failed to generate ASCII');
-			} finally {
-				setIsGenerating(false);
+			void imageToAscii(url, optionsRef.current)
+				.then((result) => {
+					lastGenParamsRef.current = params;
+					setAscii(result);
+				})
+				.catch(() => toast.error('Failed to generate ASCII'))
+				.finally(() => setIsGenerating(false));
+		}, 120);
+		return () => {
+			if (debounceTimerRef.current !== null) {
+				window.clearTimeout(debounceTimerRef.current);
+				debounceTimerRef.current = null;
 			}
-		}
-		void run();
-	}, [options, ascii ? false : urlRef.current]);
+		};
+	}, [width, contrast, charset, inverted, colorMode]);
 
 	const handleImageUpload = (file: File) => {
 		if (urlRef.current) URL.revokeObjectURL(urlRef.current);
