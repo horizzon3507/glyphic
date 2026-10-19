@@ -13,13 +13,13 @@ Convert images into ASCII art in a retro CRT terminal aesthetic. Built with Reac
 ## Developing
 
 ```sh
-pnpm install
-pnpm dev
+bun install
+bun dev
 ```
 
 ## Building
 
 ```sh
-pnpm build
-pnpm preview
+bun build
+bun preview
 ```

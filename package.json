@@ -1,7 +1,7 @@
 {
 	"name": "glyphic",
 	"private": true,
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"type": "module",
 	"scripts": {
 		"dev": "vite",
@@ -29,10 +29,5 @@
 		"react": "^19.0.0",
 		"react-dom": "^19.0.0",
 		"sonner": "^2.0.0"
-	},
-	"pnpm": {
-		"onlyBuiltDependencies": [
-			"esbuild"
-		]
 	}
 }
