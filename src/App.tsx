@@ -79,6 +79,17 @@ export default function App() {
 		};
 	}, [width, contrast, charset, inverted, colorMode]);
 
+	// Paste support: any image on the clipboard uploads through the same path.
+	useEffect(() => {
+		function onPaste(e: ClipboardEvent) {
+			const item = Array.from(e.clipboardData?.items ?? []).find((i) => i.type.startsWith('image/'));
+			const file = item?.getAsFile();
+			if (file) void handleImageUpload(file);
+		}
+		window.addEventListener('paste', onPaste);
+		return () => window.removeEventListener('paste', onPaste);
+	}, []);
+
 	const handleImageUpload = (file: File) => {
 		if (urlRef.current) URL.revokeObjectURL(urlRef.current);
 		const url = URL.createObjectURL(file);
@@ -117,7 +128,7 @@ export default function App() {
 				<div className="flex-1 flex items-center justify-center text-muted-foreground">
 					<div className="text-center px-4">
 						<p className="text-xl md:text-2xl font-medium">Glyphic</p>
-						<p className="text-sm">Upload an image to start</p>
+						<p className="text-sm">Paste or upload an image to start</p>
 					</div>
 				</div>
 			)}
