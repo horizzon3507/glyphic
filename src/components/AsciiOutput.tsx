@@ -179,6 +179,7 @@ export default function AsciiOutput({ ascii, options, onResetOptions }: AsciiOut
 		ctx.fillStyle = options.bgColor;
 		ctx.fillRect(0, 0, canvas.width / dpr, canvas.height / dpr);
 		if (!ascii) return;
+		const useColor = options.colorMode && !!ascii.html;
 		ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, Math.round(offset.x * dpr), Math.round(offset.y * dpr));
 		ctx.fillStyle = options.bgColor;
 		ctx.fillRect(0, 0, m.cols * m.charW, m.rows * m.lineH);
@@ -188,10 +189,28 @@ export default function AsciiOutput({ ascii, options, onResetOptions }: AsciiOut
 		const row0 = Math.max(0, Math.floor(-offset.y / zoom / m.lineH));
 		const row1 = Math.min(m.rows, Math.ceil((viewH - offset.y / zoom) / m.lineH) + 1);
 		ctx.font = m.font;
-		ctx.fillStyle = options.textColor;
 		ctx.textBaseline = 'top';
-		for (let i = row0; i < row1; i++) {
-			ctx.fillText(m.lines[i], 0, i * m.lineH);
+		if (useColor) {
+			// HTML spans carry per-character colors; decode each row back into
+			// (char, css color) cells and paint glyph by glyph.
+			const rowsHtml = ascii.html ? ascii.html.split('<br>') : [];
+			for (let i = row0; i < row1; i++) {
+				const row = rowsHtml[i] ?? '';
+				const re = /<span style="color: ([^"]+)">([^<]*)<\/span>/g;
+				let j = 0;
+				let match: RegExpExecArray | null;
+				while ((match = re.exec(row))) {
+					const text = match[2];
+					ctx.fillStyle = match[1].replace(/rgb/g, 'rgb');
+					ctx.fillText(text, j * m.charW, i * m.lineH);
+					j += text.length;
+				}
+			}
+		} else {
+			ctx.fillStyle = options.textColor;
+			for (let i = row0; i < row1; i++) {
+				ctx.fillText(m.lines[i], 0, i * m.lineH);
+			}
 		}
 		void viewW;
 	}
