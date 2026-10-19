@@ -15,7 +15,16 @@ Here the installable surface is **Web** (`glyphic` at https://horizzon3507.githu
 
 With one surface there is no `m` in the tag and no per-surface sections — just the version notes.
 
-Each release heading is the version and date (`## v0.1.0-stable · 18/10/2026`); under it, a short summary ends with a plain sentence like: "This version was made for Web with a stable release channel on 18/10/2026 (v0.1.0-stable)."
+Each release heading is the version and date (`## v0.1.1-stable · 18/10/2026
+
+Tooling relief cut: the whole build pipeline now runs on Bun, from local installs to the Pages CI. This version was made for Web with a stable release channel on 18/10/2026 (v0.1.1-stable).
+
+- Package manager switched from pnpm to Bun; the esbuild build-script allowlist and its bootstrap warnings go away with it.
+- Pages deploy workflow installs with `bun install --frozen-lockfile` and builds with `bun run build`.
+- Dev server pinned to port 5176 so the local URL survives the `/glyphic/` base path.
+- Various other small tweaks
+
+## v0.1.0-stable · 18/10/2026`); under it, a short summary ends with a plain sentence like: "This version was made for Web with a stable release channel on 18/10/2026 (v0.1.0-stable)."
 
 ### What the channel suffix means
 
