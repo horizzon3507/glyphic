@@ -4,6 +4,7 @@ import path from 'node:path';
 
 export default defineConfig({
 	base: '/glyphic/',
+	server: { port: 5176 },
 	plugins: [react()],
 	resolve: {
 		alias: {
