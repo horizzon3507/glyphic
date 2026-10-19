@@ -3,6 +3,7 @@ import { Toaster, toast } from 'sonner';
 import Sidebar from '@/components/Sidebar';
 import AsciiOutput from '@/components/AsciiOutput';
 import { imageToAscii, type AsciiOptions } from '@/lib/ascii';
+import { loadImage, saveImage } from '@/lib/imageStore';
 
 export const DEFAULT_OPTIONS: AsciiOptions = {
 	width: 100,
@@ -39,8 +40,22 @@ function sameGenParams(a: GenParams, b: GenParams) {
 	);
 }
 
+const OPTIONS_KEY = 'glyphic-options';
+
+function loadStoredOptions(): AsciiOptions {
+	try {
+		const raw = localStorage.getItem(OPTIONS_KEY);
+		if (!raw) return { ...DEFAULT_OPTIONS };
+		const parsed = JSON.parse(raw) as Partial<AsciiOptions>;
+		return { ...DEFAULT_OPTIONS, ...parsed };
+	} catch {
+		return { ...DEFAULT_OPTIONS };
+	}
+}
+
 export default function App() {
-	const [options, setOptions] = useState<AsciiOptions>({ ...DEFAULT_OPTIONS });
+	const [options, setOptions] = useState<AsciiOptions>(loadStoredOptions);
+	const persistTimerRef = useRef<number | null>(null);
 	const optionsRef = useRef(options);
 	optionsRef.current = options;
 	const debounceTimerRef = useRef<number | null>(null);
@@ -90,17 +105,67 @@ export default function App() {
 		return () => window.removeEventListener('paste', onPaste);
 	}, []);
 
+	useEffect(() => {
+		if (persistTimerRef.current !== null) window.clearTimeout(persistTimerRef.current);
+		persistTimerRef.current = window.setTimeout(() => {
+			persistTimerRef.current = null;
+			try {
+				localStorage.setItem(OPTIONS_KEY, JSON.stringify(optionsRef.current));
+			} catch {
+				// Silent: storage may be full or unavailable.
+			}
+		}, 400);
+		return () => {
+			if (persistTimerRef.current !== null) {
+				window.clearTimeout(persistTimerRef.current);
+				persistTimerRef.current = null;
+			}
+		};
+	}, [options, optionsRef]);
+
+	// Session restore: last image from IndexedDB, guarded before any
+	// debounced regen timer registers the restored params as its own.
+	useEffect(() => {
+		void loadImage()
+			.then(async (blob) => {
+				if (!blob) return;
+				const url = URL.createObjectURL(blob);
+				urlRef.current = url;
+				setAscii(await imageToAscii(url, optionsRef.current));
+				lastGenParamsRef.current = toGenParams(optionsRef.current);
+			})
+			.catch(() => {
+				// Silent: persistence is best-effort.
+			});
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
+
 	const handleImageUpload = (file: File) => {
 		if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+		// A fresh image invalidates any pending debounced regen.
+		if (debounceTimerRef.current !== null) {
+			window.clearTimeout(debounceTimerRef.current);
+			debounceTimerRef.current = null;
+		}
 		const url = URL.createObjectURL(file);
 		urlRef.current = url;
 		toast.success('Image uploaded');
 		setAscii(null);
 		setIsGenerating(true);
-		void imageToAscii(url, options)
-			.then((result) => setAscii(result))
+		void imageToAscii(url, optionsRef.current)
+			.then((result) => {
+				lastGenParamsRef.current = toGenParams(optionsRef.current);
+				setAscii(result);
+			})
 			.catch(() => toast.error('Failed to generate ASCII'))
 			.finally(() => setIsGenerating(false));
+		try {
+			void saveImage(file).catch(() => {
+				// Silent: image persistence is best-effort.
+			});
+		} catch {
+			// Silent: IndexedDB failures must not break the app.
+		}
 	};
 
 	const handleResetOptions = () => {
