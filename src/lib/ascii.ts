@@ -20,6 +20,22 @@ export interface AsciiOptions {
     bgColor: string;
 }
 
+/** HTML-escape a single character so span markup stays parseable. */
+function escapeHtmlChar(ch: string): string {
+    switch (ch) {
+        case '&':
+            return '&amp;';
+        case '<':
+            return '&lt;';
+        case '>':
+            return '&gt;';
+        case '"':
+            return '&quot;';
+        default:
+            return ch;
+    }
+}
+
 export async function imageToAscii(
     imageUrl: string,
     options: AsciiOptions
@@ -46,11 +62,14 @@ export async function imageToAscii(
             const imageData = ctx.getImageData(0, 0, width, height);
             const data = imageData.data;
 
-            let asciiStr = '';
+            const textRows: string[] = [];
+            const htmlRows: string[] = [];
             const chars = charsets[options.charset];
             const charLen = chars.length;
 
             for (let i = 0; i < height; i++) {
+                let textRow = '';
+                let htmlRow = '';
                 for (let j = 0; j < width; j++) {
                     const offset = (i * width + j) * 4;
                     const r = data[offset];
@@ -59,7 +78,8 @@ export async function imageToAscii(
                     const a = data[offset + 3];
 
                     if (a === 0) {
-                        asciiStr += ' ';
+                        textRow += ' ';
+                        htmlRow += ' ';
                         continue;
                     }
 
@@ -74,12 +94,28 @@ export async function imageToAscii(
                     }
 
                     const charIndex = Math.floor((brightness / 255) * (charLen - 1));
-                    asciiStr += chars[charIndex];
+                    const ch = chars[charIndex];
+                    textRow += ch;
+
+                    if (options.colorMode) {
+                        let rOut = r, gOut = g, bOut = b;
+                        if (options.inverted) {
+                            rOut = 255 - r;
+                            gOut = 255 - g;
+                            bOut = 255 - b;
+                        }
+                        htmlRow += `<span style="color: rgb(${rOut},${gOut},${bOut})">${escapeHtmlChar(ch)}</span>`;
+                    }
                 }
-                asciiStr += '\n';
+                textRows.push(textRow);
+                htmlRows.push(htmlRow);
             }
 
-            resolve({ text: asciiStr });
+            // Invariant: text rows and html rows always match 1:1.
+            resolve({
+                text: textRows.join('\n'),
+                html: options.colorMode ? htmlRows.join('<br>') : undefined
+            });
         };
         img.onerror = (err) => reject(err);
         img.src = imageUrl;
