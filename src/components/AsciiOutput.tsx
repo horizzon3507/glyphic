@@ -125,24 +125,42 @@ export default function AsciiOutput({ ascii, options, onResetOptions }: AsciiOut
 		{ label: 'HTML', action: saveAsHtml }
 	];
 
-	// Layout metrics for the current art + font.
-	function metrics() {
+	// Layout metrics cache: reused between redraws until art/font changes.
+	const layoutRef = useRef<{ charW: number; lineH: number; fontSize: number; font: string; rows: number; cols: number; lines: string[]; key: string } | null>(null);
+
+	function layout() {
 		const fontSize = 16;
 		const lines = ascii ? ascii.text.split('\n') : [''];
+		const key = `${ascii ? ascii.text.length : 0}:${options.font}`;
+		if (layoutRef.current && layoutRef.current.key === key) return layoutRef.current;
 		const ctx = measureCtx();
 		ctx.font = `${fontSize}px ${options.font}, monospace`;
 		const charW = ctx.measureText('M').width || fontSize * 0.6;
-		return {
+		const l = {
 			fontSize,
 			charW,
 			lineH: fontSize * 1.15,
 			rows: lines.length,
-			cols: Math.max(...lines.map((l) => l.length)),
-			font: `${fontSize}px ${options.font}, monospace`
+			cols: Math.max(...lines.map((x) => x.length)),
+			font: `${fontSize}px ${options.font}, monospace`,
+			lines,
+			key
 		};
+		layoutRef.current = l;
+		return l;
 	}
 
-	// Rasterize the art at the current zoom into the viewport canvas.
+	// Redraw scheduling: coalesced into one frame per burst of state changes.
+	const rafRef = useRef<number | null>(null);
+
+	function scheduleDraw() {
+		if (rafRef.current !== null) return;
+		rafRef.current = requestAnimationFrame(() => {
+			rafRef.current = null;
+			draw();
+		});
+	}
+
 	function draw() {
 		const canvas = canvasRef.current;
 		const container = containerRef.current;
@@ -154,46 +172,51 @@ export default function AsciiOutput({ ascii, options, onResetOptions }: AsciiOut
 		canvas.style.height = `${container.clientHeight}px`;
 		const ctx = canvas.getContext('2d');
 		if (!ctx) return;
-		const m = metrics();
-		ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, offset.x * dpr, offset.y * dpr);
-		if (!ascii) {
-			ctx.fillStyle = options.bgColor;
-			ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-			ctx.fillRect(0, 0, canvas.width, canvas.height);
-			return;
-		}
-		const contentW = m.cols * m.charW * zoom;
-		const contentH = m.rows * m.lineH * zoom;
-		if (contentW < canvas.width / dpr) ctx.fillStyle = options.bgColor;
-		else ctx.fillStyle = options.bgColor;
-		ctx.save();
+		const m = layout();
+		ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, Math.round(offset.x * dpr), Math.round(offset.y * dpr));
+		// Full-viewport clear in device space so panning never leaves trails.
+		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+		ctx.fillStyle = options.bgColor;
+		ctx.fillRect(0, 0, canvas.width / dpr, canvas.height / dpr);
+		if (!ascii) return;
+		ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, Math.round(offset.x * dpr), Math.round(offset.y * dpr));
 		ctx.fillStyle = options.bgColor;
 		ctx.fillRect(0, 0, m.cols * m.charW, m.rows * m.lineH);
-		ctx.restore();
+		// Cull to the visible window of rows only.
+		const viewW = canvas.width / (dpr * zoom);
+		const viewH = canvas.height / (dpr * zoom);
+		const row0 = Math.max(0, Math.floor(-offset.y / zoom / m.lineH));
+		const row1 = Math.min(m.rows, Math.ceil((viewH - offset.y / zoom) / m.lineH) + 1);
 		ctx.font = m.font;
 		ctx.fillStyle = options.textColor;
 		ctx.textBaseline = 'top';
-		ascii.text.split('\n').forEach((line, i) => ctx.fillText(line, 0, i * m.lineH));
+		for (let i = row0; i < row1; i++) {
+			ctx.fillText(m.lines[i], 0, i * m.lineH);
+		}
+		void viewW;
 	}
 
 	useEffect(() => {
-		draw();
+		scheduleDraw();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [ascii, options, zoom, offset]);
 
 	useEffect(() => {
 		function onResize() {
-			draw();
+			scheduleDraw();
 		}
 		window.addEventListener('resize', onResize);
-		return () => window.removeEventListener('resize', onResize);
+		return () => {
+			window.removeEventListener('resize', onResize);
+			if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
 
 	function fit() {
 		const container = containerRef.current;
 		if (!container || !ascii) return;
-		const m = metrics();
+		const m = layout();
 		const z = Math.min(
 			container.clientWidth / (m.cols * m.charW),
 			container.clientHeight / (m.rows * m.lineH)
