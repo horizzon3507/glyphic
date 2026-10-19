@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Toaster, toast } from 'sonner';
 import Sidebar from '@/components/Sidebar';
 import AsciiOutput from '@/components/AsciiOutput';
@@ -16,30 +16,6 @@ export const DEFAULT_OPTIONS: AsciiOptions = {
 	bgColor: '#000000'
 };
 
-// Generation-relevant subset of options. Font and colors don't need a
-// regeneration (they only change presentation).
-interface GenParams {
-	width: number;
-	contrast: number;
-	charset: AsciiOptions['charset'];
-	inverted: boolean;
-	colorMode: boolean;
-}
-
-function toGenParams(o: AsciiOptions): GenParams {
-	return { width: o.width, contrast: o.contrast, charset: o.charset, inverted: o.inverted, colorMode: o.colorMode };
-}
-
-function sameGenParams(a: GenParams, b: GenParams) {
-	return (
-		a.width === b.width &&
-		a.contrast === b.contrast &&
-		a.charset === b.charset &&
-		a.inverted === b.inverted &&
-		a.colorMode === b.colorMode
-	);
-}
-
 const OPTIONS_KEY = 'glyphic-options';
 
 function loadStoredOptions(): AsciiOptions {
@@ -53,61 +29,186 @@ function loadStoredOptions(): AsciiOptions {
 	}
 }
 
+// Generation-relevant subset of options. Font, textColor and bgColor are
+// applied via CSS and don't need regeneration.
+interface GenParams {
+	width: number;
+	contrast: number;
+	charset: AsciiOptions['charset'];
+	inverted: boolean;
+	colorMode: boolean;
+}
+
+function toGenParams(opts: AsciiOptions): GenParams {
+	return {
+		width: opts.width,
+		contrast: opts.contrast,
+		charset: opts.charset,
+		inverted: opts.inverted,
+		colorMode: opts.colorMode
+	};
+}
+
+function isSameGenParams(a: GenParams | null, b: GenParams): boolean {
+	return (
+		a !== null &&
+		a.width === b.width &&
+		a.contrast === b.contrast &&
+		a.charset === b.charset &&
+		a.inverted === b.inverted &&
+		a.colorMode === b.colorMode
+	);
+}
+
 export default function App() {
 	const [options, setOptions] = useState<AsciiOptions>(loadStoredOptions);
-	const persistTimerRef = useRef<number | null>(null);
+	const [sidebarOpen, setSidebarOpen] = useState(false);
+
+	const [ascii, setAscii] = useState<{ text: string; html?: string } | null>(null);
+	const imageUrlRef = useRef<string | null>(null);
+	const [isGenerating, setIsGenerating] = useState(false);
+
+	// Latest options for use inside debounced timers.
+	// Reading from a ref avoids stale closures when a timer fires after
+	// several rapid slider updates, and keeps stable callbacks fresh.
 	const optionsRef = useRef(options);
 	optionsRef.current = options;
+
+	// Pending debounce timer for regeneration (~120ms after the last change).
 	const debounceTimerRef = useRef<number | null>(null);
+
+	// Pending timer for debounced localStorage persistence (~400ms trailing).
+	const persistTimerRef = useRef<number | null>(null);
+
+	// Params of the last generation run; used to skip redundant work when
+	// the effect re-fires without an actual generation-relevant change.
 	const lastGenParamsRef = useRef<GenParams | null>(null);
-	const [ascii, setAscii] = useState<{ text: string; html?: string } | null>(null);
-	const [isGenerating, setIsGenerating] = useState(false);
-	const [sidebarOpen, setSidebarOpen] = useState(false);
-	const urlRef = useRef<string | null>(null);
 
-	const { width, contrast, charset, inverted, colorMode } = options;
-
-	useEffect(() => {
-		if (debounceTimerRef.current !== null) window.clearTimeout(debounceTimerRef.current);
-		// ~120ms trailing debounce collapses slider bursts into one conversion.
-		debounceTimerRef.current = window.setTimeout(() => {
-			debounceTimerRef.current = null;
-			const url = urlRef.current;
+	// Stable: reads latest options/image URL via refs, so the empty-deps
+	// identity never goes stale and memoized children don't re-render
+	// from callback identity alone.
+	const generateAscii = useCallback(
+		async (
+			url: string = imageUrlRef.current!,
+			opts: AsciiOptions = optionsRef.current
+		) => {
 			if (!url) return;
-			// Skip when a run with identical generation params already covers
-			// this state (only presentation options changed).
-			const params = toGenParams(optionsRef.current);
-			if (lastGenParamsRef.current && sameGenParams(lastGenParamsRef.current, params)) return;
+			// Record what we're generating with so the debounced effect can skip
+			// redundant runs when deps re-fire without a real param change
+			// (e.g. mount after IndexedDB restore, or upload).
+			lastGenParamsRef.current = toGenParams(opts);
 			setIsGenerating(true);
-			void imageToAscii(url, optionsRef.current)
-				.then((result) => {
-					lastGenParamsRef.current = params;
-					setAscii(result);
-				})
-				.catch(() => toast.error('Failed to generate ASCII'))
-				.finally(() => setIsGenerating(false));
-		}, 120);
-		return () => {
+			try {
+				setAscii(await imageToAscii(url, opts));
+			} catch (error) {
+				console.error('Failed to generate ASCII:', error);
+				toast.error('Failed to generate ASCII');
+			} finally {
+				setIsGenerating(false);
+			}
+		},
+		[]
+	);
+
+	const handleImageUpload = useCallback(
+		(file: File) => {
+			if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current);
+			// A fresh image makes any pending debounced regen obsolete; cancel it
+			// so it can't fire a duplicate conversion for the new URL.
 			if (debounceTimerRef.current !== null) {
 				window.clearTimeout(debounceTimerRef.current);
 				debounceTimerRef.current = null;
 			}
-		};
-	}, [width, contrast, charset, inverted, colorMode]);
+			const url = URL.createObjectURL(file);
+			imageUrlRef.current = url;
+			toast.success('Image uploaded');
+			void generateAscii(url, optionsRef.current);
+			try {
+				void saveImage(file).catch(() => {
+					// Silent: image persistence is best-effort.
+				});
+			} catch {
+				// Silent: IndexedDB failures must not break the app.
+			}
+		},
+		[generateAscii]
+	);
 
-	// Paste support: any image on the clipboard uploads through the same path.
-	useEffect(() => {
-		function onPaste(e: ClipboardEvent) {
-			const item = Array.from(e.clipboardData?.items ?? []).find((i) => i.type.startsWith('image/'));
-			const file = item?.getAsFile();
-			if (file) void handleImageUpload(file);
-		}
-		window.addEventListener('paste', onPaste);
-		return () => window.removeEventListener('paste', onPaste);
+	const handleResetOptions = useCallback(() => {
+		setOptions({ ...DEFAULT_OPTIONS });
+		toast.success('Settings reset');
 	}, []);
 
+	const handleRemoveImage = useCallback(() => {
+		if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current);
+		imageUrlRef.current = null;
+		// Cancel any pending debounced regen (its imageUrlRef guard would
+		// already skip, but don't leave a stale timer around).
+		if (debounceTimerRef.current !== null) {
+			window.clearTimeout(debounceTimerRef.current);
+			debounceTimerRef.current = null;
+		}
+		setAscii(null);
+		setIsGenerating(false);
+		toast.success('Image removed');
+		try {
+			void removeStoredImage().catch(() => {
+				// Silent: image persistence is best-effort.
+			});
+		} catch {
+			// Silent: IndexedDB failures must not break the app.
+		}
+	}, []);
+
+	// Paste an image from the clipboard anywhere in the app (Ctrl+V).
 	useEffect(() => {
-		if (persistTimerRef.current !== null) window.clearTimeout(persistTimerRef.current);
+		function handlePaste(e: ClipboardEvent) {
+			const items = e.clipboardData?.items;
+			if (!items) return;
+			for (const item of items) {
+				if (item.type.startsWith('image/')) {
+					const file = item.getAsFile();
+					if (file) {
+						handleImageUpload(file);
+						e.preventDefault();
+						break;
+					}
+				}
+			}
+		}
+		window.addEventListener('paste', handlePaste);
+		return () => window.removeEventListener('paste', handlePaste);
+	}, [handleImageUpload]);
+
+	// Restore the last uploaded image from IndexedDB on mount, if present.
+	// Options were already restored synchronously via loadStoredOptions().
+	useEffect(() => {
+		let cancelled = false;
+		let restoredUrl: string | null = null;
+		void (async () => {
+			try {
+				const blob = await loadImage();
+				if (!blob || cancelled) return;
+				restoredUrl = URL.createObjectURL(blob);
+				imageUrlRef.current = restoredUrl;
+				await generateAscii(restoredUrl, optionsRef.current);
+			} catch {
+				// Silent: image persistence is best-effort.
+			}
+		})();
+		return () => {
+			cancelled = true;
+			if (restoredUrl) URL.revokeObjectURL(restoredUrl);
+		};
+	}, [generateAscii]);
+
+	// Persist options to localStorage, debounced (~400ms trailing) so slider
+	// drags / color drags don't write on every input tick. Latest options
+	// are read via optionsRef; cleanup clears the pending timer.
+	useEffect(() => {
+		if (persistTimerRef.current !== null) {
+			window.clearTimeout(persistTimerRef.current);
+		}
 		persistTimerRef.current = window.setTimeout(() => {
 			persistTimerRef.current = null;
 			try {
@@ -122,73 +223,62 @@ export default function App() {
 				persistTimerRef.current = null;
 			}
 		};
-	}, [options, optionsRef]);
+	}, [options]);
 
-	// Session restore: last image from IndexedDB, guarded before any
-	// debounced regen timer registers the restored params as its own.
+	// Regenerate when generation-relevant options change, debounced so dragging
+	// the resolution/contrast sliders doesn't trigger a full imageToAscii
+	// conversion per input event. The latest options are read via optionsRef
+	// (no stale closure); the pending timer is cancelled on every change and
+	// on unmount. Runs with identical params to the last run are skipped.
+	// Font, textColor and bgColor are applied via CSS and don't need regeneration.
+	const { width, contrast, charset, inverted, colorMode } = options;
 	useEffect(() => {
-		void loadImage()
-			.then(async (blob) => {
-				if (!blob) return;
-				const url = URL.createObjectURL(blob);
-				urlRef.current = url;
-				setAscii(await imageToAscii(url, optionsRef.current));
-				lastGenParamsRef.current = toGenParams(optionsRef.current);
-			})
-			.catch(() => {
-				// Silent: persistence is best-effort.
-			});
+		if (!imageUrlRef.current) return;
+		const params: GenParams = { width, contrast, charset, inverted, colorMode };
+		if (isSameGenParams(lastGenParamsRef.current, params)) return;
+		if (debounceTimerRef.current !== null) {
+			window.clearTimeout(debounceTimerRef.current);
+		}
+		debounceTimerRef.current = window.setTimeout(() => {
+			debounceTimerRef.current = null;
+			const latest = optionsRef.current;
+			const latestParams = toGenParams(latest);
+			// Re-check: another path (upload/restore) may have already
+			// generated with these exact params while we waited.
+			if (isSameGenParams(lastGenParamsRef.current, latestParams)) return;
+			if (imageUrlRef.current) {
+				void generateAscii(imageUrlRef.current, { ...latest });
+			}
+		}, 120);
+		return () => {
+			if (debounceTimerRef.current !== null) {
+				window.clearTimeout(debounceTimerRef.current);
+				debounceTimerRef.current = null;
+			}
+		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [width, contrast, charset, inverted, colorMode]);
+
+	// Safety net on unmount: cancel any pending debounced regeneration and
+	// flush the latest options to localStorage (trailing write) so no
+	// debounced persistence change is lost.
+	useEffect(() => {
+		return () => {
+			if (debounceTimerRef.current !== null) {
+				window.clearTimeout(debounceTimerRef.current);
+				debounceTimerRef.current = null;
+			}
+			if (persistTimerRef.current !== null) {
+				window.clearTimeout(persistTimerRef.current);
+				persistTimerRef.current = null;
+			}
+			try {
+				localStorage.setItem(OPTIONS_KEY, JSON.stringify(optionsRef.current));
+			} catch {
+				// Silent: storage may be full or unavailable.
+			}
+		};
 	}, []);
-
-	const handleImageUpload = (file: File) => {
-		if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-		// A fresh image invalidates any pending debounced regen.
-		if (debounceTimerRef.current !== null) {
-			window.clearTimeout(debounceTimerRef.current);
-			debounceTimerRef.current = null;
-		}
-		const url = URL.createObjectURL(file);
-		urlRef.current = url;
-		toast.success('Image uploaded');
-		setAscii(null);
-		setIsGenerating(true);
-		void imageToAscii(url, optionsRef.current)
-			.then((result) => {
-				lastGenParamsRef.current = toGenParams(optionsRef.current);
-				setAscii(result);
-			})
-			.catch(() => toast.error('Failed to generate ASCII'))
-			.finally(() => setIsGenerating(false));
-		try {
-			void saveImage(file).catch(() => {
-				// Silent: image persistence is best-effort.
-			});
-		} catch {
-			// Silent: IndexedDB failures must not break the app.
-		}
-	};
-
-	const handleRemoveImage = () => {
-		if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-		urlRef.current = null;
-		if (debounceTimerRef.current !== null) {
-			window.clearTimeout(debounceTimerRef.current);
-			debounceTimerRef.current = null;
-		}
-		setAscii(null);
-		setIsGenerating(false);
-		try {
-			void removeStoredImage();
-		} catch {
-			// Silent: storage failures must not break the flow.
-		}
-	};
-
-	const handleResetOptions = () => {
-		setOptions({ ...DEFAULT_OPTIONS });
-		toast.success('Settings reset');
-	};
 
 	return (
 		<div className="relative flex h-screen w-full bg-background text-foreground overflow-hidden">
@@ -212,6 +302,7 @@ export default function App() {
 				onOpenChange={setSidebarOpen}
 			/>
 
+			{/* Mobile menu button: terminal-style square, top-left */}
 			{!sidebarOpen && (
 				<button
 					type="button"
@@ -223,6 +314,7 @@ export default function App() {
 				</button>
 			)}
 
+			{/* Invisible backdrop: tap output area to close drawer on mobile */}
 			{sidebarOpen && (
 				<button
 					type="button"
@@ -233,7 +325,11 @@ export default function App() {
 			)}
 
 			{ascii ? (
-				<AsciiOutput ascii={ascii} options={options} onResetOptions={handleResetOptions} />
+				<AsciiOutput
+					ascii={ascii}
+					options={options}
+					onResetOptions={handleResetOptions}
+				/>
 			) : isGenerating ? (
 				<div className="flex-1 flex items-center justify-center text-muted-foreground">
 					<div className="text-center px-4">
@@ -248,6 +344,7 @@ export default function App() {
 					</div>
 				</div>
 			)}
+
 			<Toaster theme="dark" position="bottom-center" className="font-mono" />
 		</div>
 	);

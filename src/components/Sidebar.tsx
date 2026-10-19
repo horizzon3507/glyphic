@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import Select from '@/components/Select';
 import ColorPicker from '@/components/ColorPicker';
 import { charsets, type AsciiOptions, type Charset } from '@/lib/ascii';
@@ -188,4 +189,4 @@ function Sidebar({ options, onOptionsChange, onImageUpload, onRemoveImage, open 
 	);
 }
 
-export default Sidebar;
+export default memo(Sidebar);
