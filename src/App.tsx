@@ -345,7 +345,24 @@ export default function App() {
 				</div>
 			)}
 
-			<Toaster theme="dark" position="bottom-center" className="font-mono" />
+			<Toaster
+				theme="dark"
+				className="font-mono"
+				style={{
+					fontFamily: "'Courier New', monospace",
+					'--border-radius': 0
+				} as React.CSSProperties}
+				toastOptions={{
+					style: {
+						borderRadius: 0,
+						background: '#000',
+						color: '#fff',
+						border: '2px solid #fff'
+					}
+				}}
+			/>
+			<div className="scanlines" />
+			<div className="crt-flicker" />
 		</div>
 	);
 }
