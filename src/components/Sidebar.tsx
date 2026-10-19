@@ -11,12 +11,14 @@ interface SidebarProps {
 	onOptionsChange: (options: AsciiOptions) => void;
 	onImageUpload: (file: File) => void;
 	onRemoveImage?: () => void;
-	}
+	open?: boolean;
+	onOpenChange?: (open: boolean) => void;
+}
 
 // Memoized so parent re-renders that don't change options/props identity
 // (e.g. ascii output updates, GitHub/menu state toggles) don't re-render the
 // whole sidebar tree. Options changes still re-render, by design.
-function Sidebar({ options, onOptionsChange, onImageUpload, onRemoveImage }: SidebarProps) {
+function Sidebar({ options, onOptionsChange, onImageUpload, onRemoveImage, open = true, onOpenChange }: SidebarProps) {
 	function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
 		if (e.target.files && e.target.files[0]) {
 			onImageUpload(e.target.files[0]);
@@ -25,8 +27,21 @@ function Sidebar({ options, onOptionsChange, onImageUpload, onRemoveImage }: Sid
 
 	return (
 		<div
-			className="h-full w-80 max-w-[85vw] shrink-0 border-r-2 border-primary bg-black p-4 md:p-6 flex flex-col gap-6 overflow-y-auto font-mono md:relative left-0"
+			className={`h-full w-80 max-w-[85vw] shrink-0 border-r-2 border-primary bg-black p-4 md:p-6 flex flex-col gap-6 overflow-y-auto font-mono transition-transform duration-200 ease-out fixed inset-y-0 left-0 z-40 md:relative md:z-auto md:translate-x-0 md:block ${
+				open ? 'translate-x-0' : '-translate-x-full'
+			}`}
 		>
+			<div className="flex items-center justify-between md:hidden">
+				<span className="text-xs font-bold uppercase tracking-widest text-primary">Settings</span>
+				<button
+					type="button"
+					onClick={() => onOpenChange?.(false)}
+					aria-label="Close settings menu"
+					className="flex h-8 w-8 items-center justify-center border-2 border-primary font-mono text-base font-bold uppercase text-primary hover:bg-primary hover:text-black transition-colors"
+				>
+					✕
+				</button>
+			</div>
 			<div className="space-y-2 border-2 border-primary p-4 text-center">
 				<h2 className="text-xl font-bold tracking-widest uppercase glow-text">Glyphic</h2>
 				<p className="text-xs text-primary/80 uppercase">
