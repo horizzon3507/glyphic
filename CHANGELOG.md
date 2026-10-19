@@ -29,7 +29,15 @@ We only call something **stable** when we mean it.
 
 </details>
 
-## v0.1.1-stable · 18/10/2026
+## v0.1.3-stable · 19/10/2026
+
+Hosting-relief cut: one build now serves both deploy targets, and the terminal theme is whole again. This version was made for Web with a stable release channel on 19/10/2026 (v0.1.3-stable).
+
+- Assets resolve from a relative base, so the worker deploy at the domain root and the GitHub Pages subpath both render from the same bundle.
+- The dark class is back on the html root after the history rewrite silently threw the terminal into the light palette.
+- Changelog blurb example restored; the 0.1.1 notes had been spliced into the example sentence.
+
+## v0.1.1-stable · 18/10/2026## v0.1.1-stable · 18/10/2026
 
 Tooling relief cut: the whole build pipeline now runs on Bun, from local installs to the Pages CI. This version was made for Web with a stable release channel on 18/10/2026 (v0.1.1-stable).
 
