@@ -30,7 +30,13 @@ function download(blob: Blob, filename: string) {
 
 export default function AsciiOutput({ ascii, options, onResetOptions }: AsciiOutputProps) {
 	const [menuOpen, setMenuOpen] = useState(false);
+	const [zoom, setZoom] = useState(1);
+	const [offset, setOffset] = useState({ x: 0, y: 0 });
+	const [dragging, setDragging] = useState(false);
 	const menuRef = useRef<HTMLDivElement>(null);
+	const containerRef = useRef<HTMLDivElement>(null);
+	const canvasRef = useRef<HTMLCanvasElement>(null);
+	const dragStart = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
 
 	useEffect(() => {
 		if (!menuOpen) return;
@@ -53,16 +59,15 @@ export default function AsciiOutput({ ascii, options, onResetOptions }: AsciiOut
 		navigator.clipboard.writeText(ascii.text).then(() => toast.success('ASCII copied to clipboard'));
 	}
 
-	function measure() {
-		const c = document.createElement('canvas').getContext('2d')!;
-		return c;
+	function measureCtx() {
+		return document.createElement('canvas').getContext('2d')!;
 	}
 
 	function saveAsImage(type: 'image/png' | 'image/jpeg') {
 		if (!ascii) return;
 		const lines = ascii.text.split('\n');
 		const cols = Math.max(...lines.map((l) => l.length));
-		const ctx = measure();
+		const ctx = measureCtx();
 		const fontSize = 16;
 		ctx.font = `${fontSize}px ${options.font}, monospace`;
 		const charW = ctx.measureText('M').width || fontSize * 0.6;
@@ -86,24 +91,15 @@ export default function AsciiOutput({ ascii, options, onResetOptions }: AsciiOut
 		if (!ascii) return;
 		const lines = ascii.text.split('\n');
 		const cols = Math.max(...lines.map((l) => l.length));
-		const ctx = measure();
+		const ctx = measureCtx();
 		const fontSize = 16;
 		ctx.font = `${fontSize}px ${options.font}, monospace`;
 		const charW = ctx.measureText('M').width || fontSize * 0.6;
 		const lineH = fontSize * 1.15;
-		const useColor = options.colorMode && !!ascii.html;
-		const rows = useColor
-			? ascii.html!.split('<br>').map((row) => row.split(/<\/span><span[^>]*>/))
-			: [];
-		const tspans = rows
-			.map((row, i) => `<text x="8" y="${i * lineH + fontSize}">${row.map((seg) => seg).join('')}</text>`)
-			.join('\n');
-		const body = useColor
-			? tspans
-			: lines
-					.map((line, i) => `<text x="8" y="${i * lineH + fontSize}">${escapeHtmlChar(line) || ' '}</text>`)
-					.join('\n');
-		const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(cols * charW) + 16}" height="${Math.ceil(lines.length * lineH) + 16}" font-family="${options.font}, monospace" font-size="${fontSize}"><rect width="100%" height="100%" fill="${options.bgColor}"/><g fill="${options.textColor}" xml:space="preserve">${body}</g></svg>`;
+		const bodySvg = options.colorMode && ascii.html
+			? ascii.html.split('<br>').map((row, i) => `<text x="8" y="${i * lineH + fontSize}">${row}</text>`).join('\n')
+			: lines.map((line, i) => `<text x="8" y="${i * lineH + fontSize}">${escapeHtmlChar(line) || ' '}</text>`).join('\n');
+		const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(cols * charW) + 16}" height="${Math.ceil(lines.length * lineH) + 16}" font-family="${options.font}, monospace" font-size="${fontSize}"><rect width="100%" height="100%" fill="${options.bgColor}"/><g fill="${options.textColor}" xml:space="preserve">${bodySvg}</g></svg>`;
 		download(new Blob([svg], { type: 'image/svg+xml' }), 'glyphic.svg');
 	}
 
@@ -129,41 +125,142 @@ export default function AsciiOutput({ ascii, options, onResetOptions }: AsciiOut
 		{ label: 'HTML', action: saveAsHtml }
 	];
 
+	// Layout metrics for the current art + font.
+	function metrics() {
+		const fontSize = 16;
+		const lines = ascii ? ascii.text.split('\n') : [''];
+		const ctx = measureCtx();
+		ctx.font = `${fontSize}px ${options.font}, monospace`;
+		const charW = ctx.measureText('M').width || fontSize * 0.6;
+		return {
+			fontSize,
+			charW,
+			lineH: fontSize * 1.15,
+			rows: lines.length,
+			cols: Math.max(...lines.map((l) => l.length)),
+			font: `${fontSize}px ${options.font}, monospace`
+		};
+	}
+
+	// Rasterize the art at the current zoom into the viewport canvas.
+	function draw() {
+		const canvas = canvasRef.current;
+		const container = containerRef.current;
+		if (!canvas || !container) return;
+		const dpr = window.devicePixelRatio || 1;
+		canvas.width = Math.max(1, Math.floor(container.clientWidth * dpr));
+		canvas.height = Math.max(1, Math.floor(container.clientHeight * dpr));
+		canvas.style.width = `${container.clientWidth}px`;
+		canvas.style.height = `${container.clientHeight}px`;
+		const ctx = canvas.getContext('2d');
+		if (!ctx) return;
+		const m = metrics();
+		ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, offset.x * dpr, offset.y * dpr);
+		if (!ascii) {
+			ctx.fillStyle = options.bgColor;
+			ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+			ctx.fillRect(0, 0, canvas.width, canvas.height);
+			return;
+		}
+		const contentW = m.cols * m.charW * zoom;
+		const contentH = m.rows * m.lineH * zoom;
+		if (contentW < canvas.width / dpr) ctx.fillStyle = options.bgColor;
+		else ctx.fillStyle = options.bgColor;
+		ctx.save();
+		ctx.fillStyle = options.bgColor;
+		ctx.fillRect(0, 0, m.cols * m.charW, m.rows * m.lineH);
+		ctx.restore();
+		ctx.font = m.font;
+		ctx.fillStyle = options.textColor;
+		ctx.textBaseline = 'top';
+		ascii.text.split('\n').forEach((line, i) => ctx.fillText(line, 0, i * m.lineH));
+	}
+
+	useEffect(() => {
+		draw();
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ascii, options, zoom, offset]);
+
+	useEffect(() => {
+		function onResize() {
+			draw();
+		}
+		window.addEventListener('resize', onResize);
+		return () => window.removeEventListener('resize', onResize);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, []);
+
+	function fit() {
+		const container = containerRef.current;
+		if (!container || !ascii) return;
+		const m = metrics();
+		const z = Math.min(
+			container.clientWidth / (m.cols * m.charW),
+			container.clientHeight / (m.rows * m.lineH)
+		);
+		const clamped = Math.max(0.1, Math.min(20, z));
+		setZoom(clamped);
+		setOffset({
+			x: Math.max(0, (container.clientWidth - m.cols * m.charW * clamped) / 2),
+			y: Math.max(0, (container.clientHeight - m.rows * m.lineH * clamped) / 2)
+		});
+	}
+
+	function zoomAt(factor: number, cx: number, cy: number) {
+		const rect = containerRef.current?.getBoundingClientRect();
+		if (!rect) return;
+		const nx = cx - rect.left - (cx - rect.left - offset.x) * factor;
+		const ny = cy - rect.top - (cy - rect.top - offset.y) * factor;
+		setZoom(Math.max(0.1, Math.min(20, zoom * factor)));
+		setOffset({ x: nx, y: ny });
+	}
+
+	function onWheel(e: React.WheelEvent) {
+		e.preventDefault();
+		const factor = Math.exp(-e.deltaY * 0.0015);
+		zoomAt(factor, e.clientX, e.clientY);
+	}
+
+	function onPointerDown(e: React.PointerEvent) {
+		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+		setDragging(true);
+		dragStart.current = { x: e.clientX, y: e.clientY, ox: offset.x, oy: offset.y };
+	}
+
+	function onPointerMove(e: React.PointerEvent) {
+		if (!dragging || !dragStart.current) return;
+		setOffset({
+			x: dragStart.current.ox + (e.clientX - dragStart.current.x),
+			y: dragStart.current.oy + (e.clientY - dragStart.current.y)
+		});
+	}
+
+	function onPointerUp(e: React.PointerEvent) {
+		try {
+			(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+		} catch {
+			// ignore
+		}
+		setDragging(false);
+		dragStart.current = null;
+	}
+
 	return (
 		<div className="flex h-full flex-col border-2 border-primary bg-black">
 			<div className="flex flex-wrap items-center gap-2 border-b-2 border-primary p-2">
 				<span className="font-bold uppercase tracking-widest text-xs text-foreground">ASCII Output</span>
 				<div className="ml-auto flex flex-wrap gap-2">
-					<button
-						type="button"
-						onClick={handleCopy}
-						disabled={!ascii}
-						className="border-2 border-primary bg-black px-3 py-1 text-xs uppercase text-primary cursor-pointer enabled:hover:bg-primary enabled:hover:text-black disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:outline-2 focus-visible:outline-white"
-					>
-						Copy ASCII
-					</button>
+					<button type="button" onClick={() => zoomAt(1 / 1.25, 0, 0)} className="border-2 border-primary bg-black px-3 py-1 text-xs uppercase text-primary cursor-pointer hover:bg-primary hover:text-black focus:outline-none focus-visible:outline-2 focus-visible:outline-white">−</button>
+					<span className="px-1 py-1 text-xs uppercase text-primary">{Math.round(zoom * 100)}%</span>
+					<button type="button" onClick={() => zoomAt(1.25, 0, 0)} className="border-2 border-primary bg-black px-3 py-1 text-xs uppercase text-primary cursor-pointer hover:bg-primary hover:text-black focus:outline-none focus-visible:outline-2 focus-visible:outline-white">+</button>
+					<button type="button" onClick={fit} className="border-2 border-primary bg-black px-3 py-1 text-xs uppercase text-primary cursor-pointer hover:bg-primary hover:text-black focus:outline-none focus-visible:outline-2 focus-visible:outline-white">Fit</button>
+					<button type="button" onClick={handleCopy} disabled={!ascii} className="border-2 border-primary bg-black px-3 py-1 text-xs uppercase text-primary cursor-pointer enabled:hover:bg-primary enabled:hover:text-black disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:outline-2 focus-visible:outline-white">Copy ASCII</button>
 					<div className="relative" ref={menuRef}>
-						<button
-							type="button"
-							onClick={() => setMenuOpen((o) => !o)}
-							disabled={!ascii}
-							aria-expanded={menuOpen}
-							className="border-2 border-primary bg-black px-3 py-1 text-xs uppercase text-primary cursor-pointer enabled:hover:bg-primary enabled:hover:text-black disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:outline-2 focus-visible:outline-white"
-						>
-							Export ▾
-						</button>
+						<button type="button" onClick={() => setMenuOpen((o) => !o)} disabled={!ascii} aria-expanded={menuOpen} className="border-2 border-primary bg-black px-3 py-1 text-xs uppercase text-primary cursor-pointer enabled:hover:bg-primary enabled:hover:text-black disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:outline-2 focus-visible:outline-white">Export ▾</button>
 						{menuOpen && ascii && (
 							<div className="absolute right-0 z-30 mt-1 w-32 border-2 border-primary bg-black">
 								{formats.map((f) => (
-									<button
-										key={f.label}
-										type="button"
-										onClick={() => {
-											setMenuOpen(false);
-											f.action();
-										}}
-										className="block w-full px-3 py-2 text-left text-xs uppercase text-primary cursor-pointer hover:bg-primary hover:text-black focus:outline-none focus-visible:outline-2 focus-visible:outline-white"
-									>
+									<button key={f.label} type="button" onClick={() => { setMenuOpen(false); f.action(); }} className="block w-full px-3 py-2 text-left text-xs uppercase text-primary cursor-pointer hover:bg-primary hover:text-black focus:outline-none focus-visible:outline-2 focus-visible:outline-white">
 										{f.label}
 									</button>
 								))}
@@ -171,23 +268,24 @@ export default function AsciiOutput({ ascii, options, onResetOptions }: AsciiOut
 						)}
 					</div>
 					{onResetOptions && (
-						<button
-							type="button"
-							onClick={onResetOptions}
-							className="border-2 border-primary bg-black px-3 py-1 text-xs uppercase text-primary cursor-pointer hover:bg-primary hover:text-black focus:outline-none focus-visible:outline-2 focus-visible:outline-white"
-						>
-							Reset
-						</button>
+						<button type="button" onClick={onResetOptions} className="border-2 border-primary bg-black px-3 py-1 text-xs uppercase text-primary cursor-pointer hover:bg-primary hover:text-black focus:outline-none focus-visible:outline-2 focus-visible:outline-white">Reset</button>
 					)}
 				</div>
 			</div>
-			<div className="min-h-0 flex-1 overflow-auto p-4">
+			<div
+				ref={containerRef}
+				className={`relative min-h-0 flex-1 overflow-hidden ${dragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+				style={{ backgroundColor: options.bgColor }}
+				onWheel={onWheel}
+				onPointerDown={onPointerDown}
+				onPointerMove={onPointerMove}
+				onPointerUp={onPointerUp}
+				onPointerCancel={onPointerUp}
+			>
 				{ascii ? (
-					<pre className="whitespace-pre font-mono text-sm leading-tight" style={{ backgroundColor: options.bgColor, color: options.textColor }}>
-						{ascii.text}
-					</pre>
+					<canvas ref={canvasRef} className="block" />
 				) : (
-					<p className="font-mono text-sm text-muted-foreground">No image yet. Upload one to begin.</p>
+					<p className="absolute inset-0 flex items-center justify-center font-mono text-sm text-muted-foreground">No image yet. Upload one to begin.</p>
 				)}
 			</div>
 		</div>
