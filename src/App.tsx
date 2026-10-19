@@ -3,7 +3,7 @@ import { Toaster, toast } from 'sonner';
 import Sidebar from '@/components/Sidebar';
 import AsciiOutput from '@/components/AsciiOutput';
 import { imageToAscii, type AsciiOptions } from '@/lib/ascii';
-import { loadImage, saveImage } from '@/lib/imageStore';
+import { loadImage, saveImage, removeImage as removeStoredImage } from '@/lib/imageStore';
 
 export const DEFAULT_OPTIONS: AsciiOptions = {
 	width: 100,
@@ -168,6 +168,22 @@ export default function App() {
 		}
 	};
 
+	const handleRemoveImage = () => {
+		if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+		urlRef.current = null;
+		if (debounceTimerRef.current !== null) {
+			window.clearTimeout(debounceTimerRef.current);
+			debounceTimerRef.current = null;
+		}
+		setAscii(null);
+		setIsGenerating(false);
+		try {
+			void removeStoredImage();
+		} catch {
+			// Silent: storage failures must not break the flow.
+		}
+	};
+
 	const handleResetOptions = () => {
 		setOptions({ ...DEFAULT_OPTIONS });
 		toast.success('Settings reset');
@@ -179,6 +195,7 @@ export default function App() {
 				options={options}
 				onOptionsChange={setOptions}
 				onImageUpload={handleImageUpload}
+				onRemoveImage={handleRemoveImage}
 			/>
 
 			{ascii ? (
