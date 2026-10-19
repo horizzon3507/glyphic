@@ -1,130 +1,175 @@
+import Select from '@/components/Select';
+import ColorPicker from '@/components/ColorPicker';
 import { charsets, type AsciiOptions, type Charset } from '@/lib/ascii';
 
-const fonts = ['Courier New', 'VT323', 'Press Start 2P', 'Share Tech Mono', 'Fira Code'];
+const fonts = ['Courier New', 'VT323', 'Press Start 2P', 'Share Tech Mono', 'Fira Code', 'IBM Plex Mono', 'Space Mono', 'JetBrains Mono'];
+
 const charsetOptions = Object.keys(charsets) as Charset[];
 
 interface SidebarProps {
 	options: AsciiOptions;
 	onOptionsChange: (options: AsciiOptions) => void;
 	onImageUpload: (file: File) => void;
-}
+	onRemoveImage?: () => void;
+	}
 
-function update(options: AsciiOptions, patch: Partial<AsciiOptions>, onOptionsChange: SidebarProps['onOptionsChange']) {
-	onOptionsChange({ ...options, ...patch });
-}
-
-export function Sidebar({ options, onOptionsChange, onImageUpload }: SidebarProps) {
+// Memoized so parent re-renders that don't change options/props identity
+// (e.g. ascii output updates, GitHub/menu state toggles) don't re-render the
+// whole sidebar tree. Options changes still re-render, by design.
+function Sidebar({ options, onOptionsChange, onImageUpload, onRemoveImage }: SidebarProps) {
 	function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-		const file = e.target.files?.[0];
-		if (file) onImageUpload(file);
-		e.target.value = '';
+		if (e.target.files && e.target.files[0]) {
+			onImageUpload(e.target.files[0]);
+		}
 	}
 
 	return (
-		<aside className="flex w-80 shrink-0 flex-col gap-4 overflow-y-auto border-r-2 border-primary bg-black p-4">
-			<div className="space-y-2">
-				<span className="uppercase font-bold text-xs text-foreground">Input Source</span>
-				<input
-					type="file"
-					accept="image/*"
-					onChange={handleFileChange}
-					className="border-2 border-primary bg-black p-2 text-xs text-primary file:mr-2 file:border-2 file:border-primary file:bg-black file:px-2 file:py-1 file:text-xs file:uppercase file:text-primary file:cursor-pointer"
-					aria-label="Upload image"
-				/>
+		<div
+			className="h-full w-80 max-w-[85vw] shrink-0 border-r-2 border-primary bg-black p-4 md:p-6 flex flex-col gap-6 overflow-y-auto font-mono md:relative left-0"
+		>
+			<div className="space-y-2 border-2 border-primary p-4 text-center">
+				<h2 className="text-xl font-bold tracking-widest uppercase glow-text">Glyphic</h2>
+				<p className="text-xs text-primary/80 uppercase">
+					Apply your images to a more vintage look (or simply convert them to plain text).
+				</p>
 			</div>
 
+			<div className="border-t-2 border-primary border-dashed my-4 md:my-6" />
+
 			<div className="space-y-2">
-				<label className="flex justify-between text-xs uppercase text-primary">
-					<span>Resolution</span>
-					<span>{options.width}</span>
+				<label htmlFor="image" className="uppercase font-bold tracking-wider text-xs text-foreground">
+					Input Source
 				</label>
-				<input
-					type="range" min={20} max={400} value={options.width}
-					onChange={(e) => update(options, { width: Number(e.target.value) }, onOptionsChange)}
-					className="w-full accent-black"
-					aria-label="Resolution"
-				/>
-				<label className="flex justify-between text-xs uppercase text-primary">
-					<span>Contrast</span>
-					<span>{options.contrast}</span>
-				</label>
-				<input
-					type="range" min={-100} max={100} value={options.contrast}
-					onChange={(e) => update(options, { contrast: Number(e.target.value) }, onOptionsChange)}
-					className="w-full"
-					aria-label="Contrast"
-				/>
-			</div>
-
-			<div className="space-y-2">
-				<span className="uppercase font-bold text-xs text-foreground">Charset</span>
-				<select
-					value={options.charset}
-					onChange={(e) => update(options, { charset: e.target.value as Charset }, onOptionsChange)}
-					className="w-full border-2 border-primary bg-black p-2 text-xs uppercase text-primary"
-					aria-label="Character set"
-				>
-					{charsetOptions.map((c) => <option key={c} value={c}>{c}</option>)}
-				</select>
-			</div>
-
-			<div className="space-y-2">
-				<span className="uppercase font-bold text-xs text-foreground">Font</span>
-				<select
-					value={options.font}
-					onChange={(e) => update(options, { font: e.target.value }, onOptionsChange)}
-					className="w-full border-2 border-primary bg-black p-2 text-xs uppercase text-primary"
-					aria-label="Font family"
-				>
-					{fonts.map((f) => <option key={f} value={f}>{f}</option>)}
-				</select>
-			</div>
-
-			<div className="flex gap-2">
-				<label className="flex flex-1 items-center gap-2 text-xs uppercase text-primary">
+				<div className="border-2 border-primary p-1 bg-black">
 					<input
-						type="checkbox" checked={options.inverted}
-						onChange={(e) => update(options, { inverted: e.target.checked }, onOptionsChange)}
-						className="accent-black"
+						id="image"
+						type="file"
+						accept="image/*"
+						onChange={handleFileChange}
+						className="w-full bg-transparent text-sm file:mr-4 file:py-2 file:px-4 file:border-2 file:border-primary file:text-primary file:bg-black file:uppercase hover:file:bg-primary hover:file:text-black cursor-pointer focus:outline-none"
 					/>
-					Invert
-				</label>
+				</div>
+				{onRemoveImage && (
+					<button
+						type="button"
+						onClick={onRemoveImage}
+						title="Remove the current image"
+						className="flex w-full items-center justify-center gap-1.5 border-2 border-primary bg-black px-2 py-1.5 text-xs font-bold uppercase text-primary cursor-pointer hover:bg-primary hover:text-black focus:outline-none focus-visible:outline-2 focus-visible:outline-white transition-colors"
+					>
+						<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3.5 w-3.5" aria-hidden="true">
+							<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" strokeLinecap="square" />
+						</svg>
+						Remove Image
+					</button>
+				)}
 			</div>
 
-			<label className="flex items-center gap-2 text-xs uppercase text-primary">
-				<input
-					type="checkbox" checked={options.colorMode}
-					onChange={(e) => update(options, { colorMode: e.target.checked }, onOptionsChange)}
-				/>
-				Color mode
-			</label>
+			<div className="border-t-2 border-primary border-dashed my-4 md:my-6" />
 
-			<div className="space-y-2">
-				<span className="uppercase font-bold text-xs text-foreground">Text Color</span>
-				<input
-					type="color" value={options.textColor}
-					onChange={(e) => update(options, { textColor: e.target.value }, onOptionsChange)}
-					className="h-10 w-full cursor-pointer border-2 border-primary bg-black"
-					aria-label="Text color"
+			<div className="space-y-4">
+				<div className="space-y-2">
+					<div className="flex justify-between">
+						<label className="uppercase font-bold text-xs text-foreground">
+							Resolution [{options.width}px]
+						</label>
+					</div>
+					<input
+						type="range"
+						min={20}
+						max={300}
+						step={1}
+						value={options.width}
+						onChange={(e) =>
+							onOptionsChange({ ...options, width: Number(e.target.value) })
+						}
+						className="w-full h-4 bg-secondary appearance-none cursor-pointer border-2 border-primary [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-black"
+					/>
+				</div>
+
+				<div className="space-y-2">
+					<div className="flex justify-between">
+						<label className="uppercase font-bold text-xs text-foreground">
+							Contrast [{options.contrast}]
+						</label>
+					</div>
+					<input
+						type="range"
+						min={-128}
+						max={128}
+						step={1}
+						value={options.contrast}
+						onChange={(e) =>
+							onOptionsChange({ ...options, contrast: Number(e.target.value) })
+						}
+						className="w-full h-4 bg-secondary appearance-none cursor-pointer border-2 border-primary [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-black"
+					/>
+				</div>
+
+				<Select
+					label="Font Family"
+					value={options.font}
+					options={fonts}
+					onChange={(font) => onOptionsChange({ ...options, font })}
 				/>
-				<span className="uppercase font-bold text-xs text-foreground">Background Color</span>
-				<input
-					type="color" value={options.bgColor}
-					onChange={(e) => update(options, { bgColor: e.target.value }, onOptionsChange)}
-					className="h-10 w-full cursor-pointer border-2 border-primary bg-black"
-					aria-label="Background color"
+
+				<Select
+					label="Character Set"
+					value={options.charset}
+					options={charsetOptions}
+					onChange={(charset) => onOptionsChange({ ...options, charset: charset as Charset })}
 				/>
 			</div>
 
-			<a
-				href="https://github.com/horizzon3507/"
-				target="_blank"
-				rel="noreferrer"
-				className="border-2 border-primary bg-black p-2 text-center text-xs uppercase text-primary cursor-pointer hover:bg-primary hover:text-black focus:outline-none focus-visible:outline-2 focus-visible:outline-white"
-			>
-				GitHub ↗
-			</a>
-		</aside>
+			<div className="border-t-2 border-primary border-dashed my-4 md:my-6" />
+
+			<div className="space-y-4">
+				<div className="flex items-center justify-between border-2 border-primary p-2 hover:bg-primary/10 cursor-pointer">
+					<label htmlFor="invert" className="uppercase font-bold text-xs cursor-pointer text-foreground">
+						Invert Colors
+					</label>
+					<input
+						type="checkbox"
+						id="invert"
+						checked={options.inverted}
+						onChange={(e) => onOptionsChange({ ...options, inverted: e.target.checked })}
+						className="accent-primary h-4 w-4 cursor-pointer"
+					/>
+				</div>
+
+				<div className="flex items-center justify-between border-2 border-primary p-2 hover:bg-primary/10 cursor-pointer">
+					<label
+						htmlFor="color-mode"
+						className="uppercase font-bold text-xs cursor-pointer text-foreground"
+					>
+						Color Mode [EXP]
+					</label>
+					<input
+						type="checkbox"
+						id="color-mode"
+						checked={options.colorMode}
+						onChange={(e) => onOptionsChange({ ...options, colorMode: e.target.checked })}
+						className="accent-primary h-4 w-4 cursor-pointer"
+					/>
+				</div>
+			</div>
+
+			<div className="border-t-2 border-primary border-dashed my-4 md:my-6" />
+
+			<div className="space-y-4">
+				<ColorPicker
+					label="Text Color"
+					value={options.textColor}
+					onChange={(textColor) => onOptionsChange({ ...options, textColor })}
+				/>
+				<ColorPicker
+					label="Background Color"
+					value={options.bgColor}
+					onChange={(bgColor) => onOptionsChange({ ...options, bgColor })}
+				/>
+			</div>
+
+			<div className="mt-auto pt-6" />
+		</div>
 	);
 }
 
