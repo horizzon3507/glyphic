@@ -29,6 +29,17 @@ We only call something **stable** when we mean it.
 
 </details>
 
+## v0.1.4-stable · 23/10/2026
+
+Studio cut: dither, one-click looks, a custom ink-ordered ramp, character aspect, and a source photo under the ASCII. This version was made for Web with a stable release channel on 23/10/2026 (v0.1.4-stable).
+
+- Floyd-Steinberg and Atkinson dither. The glyph follows the diffused luminance, and color mode still paints each character from its source pixel.
+- Five looks: Amber, Phosphor, Game Boy, Receipt, and Matrix. Each sets font, charset, colors, contrast, invert, dither, and aspect, and leaves the resolution alone.
+- Custom ramp. Glyphs are ordered by measured ink in the current font, darkest first. An empty field keeps the selected character set.
+- Aspect slider from 0.30 to 1.20, plus Match font. The default stays 0.50, so older pictures keep their row count.
+- Drop an image anywhere on the window. Source lays the original photo under the ASCII, locked to pan and zoom. PNG, JPG, SVG, TXT, and HTML exports stay the artwork alone.
+- Repaired the doubled v0.1.1 heading.
+
 ## v0.1.3-stable · 19/10/2026
 
 Hosting-relief cut: one build now serves both deploy targets, and the terminal theme is whole again. This version was made for Web with a stable release channel on 19/10/2026 (v0.1.3-stable).
@@ -37,7 +48,7 @@ Hosting-relief cut: one build now serves both deploy targets, and the terminal t
 - The dark class is back on the html root after the history rewrite silently threw the terminal into the light palette.
 - Changelog blurb example restored; the 0.1.1 notes had been spliced into the example sentence.
 
-## v0.1.1-stable · 18/10/2026## v0.1.1-stable · 18/10/2026
+## v0.1.1-stable · 18/10/2026
 
 Tooling relief cut: the whole build pipeline now runs on Bun, from local installs to the Pages CI. This version was made for Web with a stable release channel on 18/10/2026 (v0.1.1-stable).
 

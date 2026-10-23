@@ -5,10 +5,11 @@ interface SelectProps {
 	/** Label shown above the dropdown. */
 	label?: string;
 	options: readonly string[];
+	labels?: Record<string, string>;
 	onChange: (value: string) => void;
 }
 
-export default function Select({ value, label, options, onChange }: SelectProps) {
+export default function Select({ value, label, options, labels, onChange }: SelectProps) {
 	const [open, setOpen] = useState(false);
 	const ref = useRef<HTMLDivElement>(null);
 
@@ -39,7 +40,7 @@ export default function Select({ value, label, options, onChange }: SelectProps)
 					onClick={() => setOpen((o) => !o)}
 					className="flex w-full items-center justify-between bg-black border-2 border-primary text-primary p-2 uppercase focus:outline-none cursor-pointer text-left"
 				>
-					{value}
+					{labels?.[value] ?? value}
 					<svg
 						viewBox="0 0 24 24"
 						fill="none"
@@ -72,7 +73,7 @@ export default function Select({ value, label, options, onChange }: SelectProps)
 											: 'text-primary hover:bg-primary/20'
 									}`}
 								>
-									{option}
+									{labels?.[option] ?? option}
 								</button>
 							</li>
 						))}

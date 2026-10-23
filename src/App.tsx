@@ -13,7 +13,10 @@ export const DEFAULT_OPTIONS: AsciiOptions = {
 	inverted: false,
 	colorMode: false,
 	textColor: '#ffffff',
-	bgColor: '#000000'
+	bgColor: '#000000',
+	customCharset: '',
+	dither: 'none',
+	aspect: 0.5
 };
 
 const OPTIONS_KEY = 'glyphic-options';
@@ -29,14 +32,19 @@ function loadStoredOptions(): AsciiOptions {
 	}
 }
 
-// Generation-relevant subset of options. Font, textColor and bgColor are
-// applied via CSS and don't need regeneration.
+// Generation-relevant subset of options. textColor and bgColor are applied
+// via CSS and don't need regeneration. Font is generation-relevant because
+// glyph ink order depends on it.
 interface GenParams {
 	width: number;
 	contrast: number;
 	charset: AsciiOptions['charset'];
 	inverted: boolean;
 	colorMode: boolean;
+	customCharset: string;
+	dither: 'none' | 'floyd-steinberg' | 'atkinson';
+	aspect: number;
+	font: string;
 }
 
 function toGenParams(opts: AsciiOptions): GenParams {
@@ -45,7 +53,11 @@ function toGenParams(opts: AsciiOptions): GenParams {
 		contrast: opts.contrast,
 		charset: opts.charset,
 		inverted: opts.inverted,
-		colorMode: opts.colorMode
+		colorMode: opts.colorMode,
+		customCharset: opts.customCharset,
+		dither: opts.dither,
+		aspect: opts.aspect,
+		font: opts.font
 	};
 }
 
@@ -56,7 +68,11 @@ function isSameGenParams(a: GenParams | null, b: GenParams): boolean {
 		a.contrast === b.contrast &&
 		a.charset === b.charset &&
 		a.inverted === b.inverted &&
-		a.colorMode === b.colorMode
+		a.colorMode === b.colorMode &&
+		a.customCharset === b.customCharset &&
+		a.dither === b.dither &&
+		a.aspect === b.aspect &&
+		a.font === b.font
 	);
 }
 
@@ -66,7 +82,9 @@ export default function App() {
 
 	const [ascii, setAscii] = useState<{ text: string; html?: string } | null>(null);
 	const imageUrlRef = useRef<string | null>(null);
+	const [imageUrl, setImageUrl] = useState<string | null>(null);
 	const [isGenerating, setIsGenerating] = useState(false);
+	const [dragActive, setDragActive] = useState(false);
 
 	// Latest options for use inside debounced timers.
 	// Reading from a ref avoids stale closures when a timer fires after
@@ -121,6 +139,7 @@ export default function App() {
 			}
 			const url = URL.createObjectURL(file);
 			imageUrlRef.current = url;
+			setImageUrl(url);
 			toast.success('Image uploaded');
 			void generateAscii(url, optionsRef.current);
 			try {
@@ -142,6 +161,7 @@ export default function App() {
 	const handleRemoveImage = useCallback(() => {
 		if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current);
 		imageUrlRef.current = null;
+		setImageUrl(null);
 		// Cancel any pending debounced regen (its imageUrlRef guard would
 		// already skip, but don't leave a stale timer around).
 		if (debounceTimerRef.current !== null) {
@@ -191,6 +211,7 @@ export default function App() {
 				if (!blob || cancelled) return;
 				restoredUrl = URL.createObjectURL(blob);
 				imageUrlRef.current = restoredUrl;
+				setImageUrl(restoredUrl);
 				await generateAscii(restoredUrl, optionsRef.current);
 			} catch {
 				// Silent: image persistence is best-effort.
@@ -198,7 +219,13 @@ export default function App() {
 		})();
 		return () => {
 			cancelled = true;
-			if (restoredUrl) URL.revokeObjectURL(restoredUrl);
+			if (restoredUrl) {
+				URL.revokeObjectURL(restoredUrl);
+				if (imageUrlRef.current === restoredUrl) {
+					imageUrlRef.current = null;
+					setImageUrl(null);
+				}
+			}
 		};
 	}, [generateAscii]);
 
@@ -230,11 +257,21 @@ export default function App() {
 	// conversion per input event. The latest options are read via optionsRef
 	// (no stale closure); the pending timer is cancelled on every change and
 	// on unmount. Runs with identical params to the last run are skipped.
-	// Font, textColor and bgColor are applied via CSS and don't need regeneration.
-	const { width, contrast, charset, inverted, colorMode } = options;
+	// textColor and bgColor are applied via CSS and don't need regeneration.
+	const { width, contrast, charset, inverted, colorMode, customCharset, dither, aspect, font } = options;
 	useEffect(() => {
 		if (!imageUrlRef.current) return;
-		const params: GenParams = { width, contrast, charset, inverted, colorMode };
+		const params: GenParams = {
+			width,
+			contrast,
+			charset,
+			inverted,
+			colorMode,
+			customCharset,
+			dither,
+			aspect,
+			font
+		};
 		if (isSameGenParams(lastGenParamsRef.current, params)) return;
 		if (debounceTimerRef.current !== null) {
 			window.clearTimeout(debounceTimerRef.current);
@@ -257,7 +294,7 @@ export default function App() {
 			}
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [width, contrast, charset, inverted, colorMode]);
+	}, [width, contrast, charset, inverted, colorMode, customCharset, dither, aspect, font]);
 
 	// Safety net on unmount: cancel any pending debounced regeneration and
 	// flush the latest options to localStorage (trailing write) so no
@@ -280,8 +317,45 @@ export default function App() {
 		};
 	}, []);
 
+	function dragHasFiles(e: React.DragEvent<HTMLDivElement>): boolean {
+		return Array.from(e.dataTransfer.types).includes('Files');
+	}
+
+	function handleDragEnter(e: React.DragEvent<HTMLDivElement>) {
+		e.preventDefault();
+		if (dragHasFiles(e)) setDragActive(true);
+	}
+
+	function handleDragOver(e: React.DragEvent<HTMLDivElement>) {
+		e.preventDefault();
+		if (dragHasFiles(e)) setDragActive(true);
+	}
+
+	function handleDragLeave(e: React.DragEvent<HTMLDivElement>) {
+		const next = e.relatedTarget;
+		if (next instanceof Node && e.currentTarget.contains(next)) return;
+		setDragActive(false);
+	}
+
+	function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+		e.preventDefault();
+		setDragActive(false);
+		const file = Array.from(e.dataTransfer.files).find((f) => f.type.startsWith('image/'));
+		if (!file) {
+			toast.error('Drop an image file');
+			return;
+		}
+		handleImageUpload(file);
+	}
+
 	return (
-		<div className="relative flex h-screen w-full bg-background text-foreground overflow-hidden">
+		<div
+			className={`relative flex h-screen w-full bg-background text-foreground overflow-hidden${dragActive ? ' outline outline-2 outline-primary' : ''}`}
+			onDragEnter={handleDragEnter}
+			onDragOver={handleDragOver}
+			onDragLeave={handleDragLeave}
+			onDrop={handleDrop}
+		>
 			<a
 				href="https://github.com/horizzon3507/"
 				target="_blank"
@@ -329,6 +403,7 @@ export default function App() {
 					ascii={ascii}
 					options={options}
 					onResetOptions={handleResetOptions}
+					imageUrl={imageUrl}
 				/>
 			) : isGenerating ? (
 				<div className="flex-1 flex items-center justify-center text-muted-foreground">
@@ -340,7 +415,7 @@ export default function App() {
 				<div className="flex-1 flex items-center justify-center text-muted-foreground">
 					<div className="text-center px-4">
 						<p className="text-xl md:text-2xl font-medium">Glyphic</p>
-						<p className="text-sm">Paste or upload an image to start</p>
+						<p className="text-sm">Drop, paste, or upload an image</p>
 					</div>
 				</div>
 			)}

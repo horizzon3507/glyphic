@@ -6,6 +6,7 @@ interface AsciiOutputProps {
 	ascii: { text: string; html?: string };
 	options: AsciiOptions;
 	onResetOptions: () => void;
+	imageUrl: string | null;
 }
 
 const FONT_SIZE = 12;
@@ -92,9 +93,11 @@ function parseColorHtml(html: string): ColorCell[][] {
 	return lines;
 }
 
-export default function AsciiOutput({ ascii, options, onResetOptions }: AsciiOutputProps) {
+export default function AsciiOutput({ ascii, options, onResetOptions, imageUrl }: AsciiOutputProps) {
 	const [exportOpen, setExportOpen] = useState(false);
+	const [showSource, setShowSource] = useState(false);
 	const exportRef = useRef<HTMLDivElement>(null);
+	const sourceImageRef = useRef<HTMLImageElement | null>(null);
 
 	const canvasRef = useRef<HTMLCanvasElement>(null);
 	const viewportRef = useRef<HTMLDivElement>(null);
@@ -522,9 +525,10 @@ export default function AsciiOutput({ ascii, options, onResetOptions }: AsciiOut
 		textLines,
 		colorGrid,
 		gridLayout,
-		options
+		options,
+		showSource
 	});
-	latestRef.current = { textLines, colorGrid, gridLayout, options };
+	latestRef.current = { textLines, colorGrid, gridLayout, options, showSource };
 
 	// Core art renderer shared by the live viewport and view exports.
 	// Culling bounds are derived from the given canvas size + current view.
@@ -544,6 +548,18 @@ export default function AsciiOutput({ ascii, options, onResetOptions }: AsciiOut
 		if (layout.rows === 0 || layout.cols === 0) return;
 
 		ctx.setTransform(dpr * scale, 0, 0, dpr * scale, panX, panY);
+		const sourceImage = sourceImageRef.current;
+		if (
+			latest.showSource &&
+			sourceImage &&
+			sourceImage.complete &&
+			sourceImage.naturalWidth > 0
+		) {
+			ctx.save();
+			ctx.globalAlpha = 0.32;
+			ctx.drawImage(sourceImage, PADDING, PADDING, layout.contentW, layout.contentH);
+			ctx.restore();
+		}
 		ctx.font = `${FONT_SIZE}px '${opts.font}', monospace`;
 		ctx.textBaseline = 'top';
 		ctx.textAlign = 'left';
@@ -755,6 +771,25 @@ export default function AsciiOutput({ ascii, options, onResetOptions }: AsciiOut
 		});
 	}, [doDraw]);
 
+	useEffect(() => {
+		sourceImageRef.current = null;
+		if (!imageUrl) {
+			scheduleRedraw();
+			return;
+		}
+		const img = new Image();
+		let cancelled = false;
+		img.onload = () => {
+			if (cancelled) return;
+			sourceImageRef.current = img;
+			scheduleRedraw();
+		};
+		img.src = imageUrl;
+		return () => {
+			cancelled = true;
+		};
+	}, [imageUrl, scheduleRedraw]);
+
 	const centerAt = useCallback(
 		(scale: number) => {
 			const vp = viewportRef.current;
@@ -928,6 +963,7 @@ export default function AsciiOutput({ ascii, options, onResetOptions }: AsciiOut
 		options.bgColor,
 		options.font,
 		options.colorMode,
+		showSource,
 		scheduleRedraw
 	]);
 
@@ -978,6 +1014,16 @@ export default function AsciiOutput({ ascii, options, onResetOptions }: AsciiOut
 			style={{ backgroundColor: options.bgColor }}
 		>
 			<div className="absolute top-14 right-4 md:top-4 md:right-16 flex flex-wrap justify-end gap-2 z-10 max-w-[calc(100vw-8rem)] md:max-w-[calc(100vw-2rem)]">
+				<button
+					type="button"
+					aria-pressed={showSource}
+					title="Show the original image under the ASCII"
+					disabled={imageUrl === null}
+					onClick={() => setShowSource((v) => !v)}
+					className="border border-foreground/20 bg-background/80 px-2 py-1 text-xs sm:px-3 sm:py-1.5 sm:text-sm rounded-md hover:bg-accent transition-colors disabled:opacity-40"
+				>
+					Source
+				</button>
 				<button
 					onClick={onResetOptions}
 					title="Reset all settings to defaults"
